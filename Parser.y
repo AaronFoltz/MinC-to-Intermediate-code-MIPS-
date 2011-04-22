@@ -11,6 +11,7 @@ import java.util.*;
 
 /*
 	TODO Work on Arrays/Records - LAST
+	TODO Look for registers to be freed (expressions that take more than 2 registers) 
 */
 %}
  
@@ -41,8 +42,8 @@ start:
 			out.write("Newline: .asciiz \"\\n\"\n");
 			System.out.println("Newline: .asciiz \"\\n\"");
 			
-			out.write("Enter: .asciiz \"Please enter an integer: \"\n");
-			System.out.println("Enter: .asciiz \"Please enter an integer: \"");
+			out.write("Enter: .asciiz \"Please enter an integer: \"\n\n");
+			System.out.println("Enter: .asciiz \"Please enter an integer: \"\n");
 
 		} catch ( IOException e) { 
 			e.printStackTrace();
@@ -173,6 +174,11 @@ fn_decl: type ID
 			for(int i = 0, j = 40; i < 4; i++, j = j+4){		
 				out.write("sw $a" + i + ", " + j + "($sp)\n");
 				System.out.println("sw $a" + i + ", " + j + "($sp)");
+				freeArgReg(i);
+			}
+			
+			for(int i = 0, j = 8; i < 8; i++, j = j+4){
+				freeReg(i);
 			}
 			
 			// Prints out a newline in the source code - aesthetic purposes
@@ -237,25 +243,52 @@ var_decl:	type ID ';'
 			
 		// Global Scope
 		}else{
-			
-			try {
+			if($1.type.equals("type")){
+				typeCalled = lookupGlobal($1);
+								
+				try {
+
+					out.write("global_" + $2.name + ": .space " + (typeCalled.typeSize) + "\t# Allocates space for the array\n");
+					System.out.println("global_" + $2.name + ": .space " + (typeCalled.typeSize) + "\t# Allocates space for the array");
+
+				} catch ( IOException e) { 
+					e.printStackTrace();
+				}
 				
-				out.write("global_" + $2.name + ": .word 0\n");
-				System.out.println("global_" + $2.name + ": .word 0");
+			} else {
 				
-			} catch ( IOException e) { 
-				e.printStackTrace();
+				try {
+				
+					out.write("global_" + $2.name + ": .word 0\n");
+					System.out.println("global_" + $2.name + ": .word 0");
+				
+				} catch ( IOException e) { 
+					e.printStackTrace();
+				}
 			}
 			
 		}
 		 
 		insert($2, $1.name); 
-		$2.argRegister = -1;
+		//$2.argRegister = -1;
 	
 	}
 	;
 
-type_decl:	type '[' NUM ']' TYPE_ID ';' { 	insert($5, $1.name); } 
+type_decl:	type '[' NUM ']' TYPE_ID ';' 
+	{ 	
+		/*try {
+			
+			out.write("global_" + $5.name + ": .space " + (Integer.parseInt($3.name)*4) + "\t# Allocates space for the array\n");
+			System.out.println("global_" + $5.name + ": .space " + (Integer.parseInt($3.name)*4) + "\t# Allocates space for the array");
+			
+		} catch ( IOException e) { 
+			e.printStackTrace();
+		}*/
+		
+		insert($5, $1.name);
+		$5.typeSize = Integer.parseInt($3.name)*4;
+	} 
 	|	'{' type_list '}' TYPE_ID ';' { insert($5, "type_list"); }
 	;
 
@@ -263,9 +296,9 @@ type_list:	type_list type ID ';' {	insert($3, $2.name); }
 	|	type ID ';' { insert($2, $1.name); }
 	;
 
-type:	INT	
-	|	BOOL 
-	|	TYPE_ID 
+type:	INT		{$$.type = "int";}
+	|	BOOL 	{$$.type = "bool";}
+	|	TYPE_ID {$$.type = "type";}
 	;
 
 params:	'(' ')'
@@ -276,7 +309,7 @@ param_list:	param_list ',' type ID
 	{ 
 		insert($4, $3.name); 
 		/*$4.argRegister = regNumber++;*/
-		$4.param = true;
+		// $4.param = true;
 		currentFunct.variables.add($4.name);
 		//System.out.println("@@ REG: " + $4.name + " " + $4.argRegister);
 		
@@ -295,7 +328,7 @@ param_list:	param_list ',' type ID
 	{ 
 		insert($2, $1.name); 
 		//$2.argRegister = regNumber++;
-		$2.param = true;
+		//$2.param = true;
 		currentFunct.variables.add($2.name);
 		//System.out.println("@@ REG " + $2.name + " " + $2.argRegister);
 		
@@ -320,33 +353,60 @@ var_decls:	var_decls var_decl
 	;
 
 statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls statements '}' {exitScope();}
-	|	var {freeReg($1.register);} ASSIGN_OP expression ';' 
+	|	var 
 	{
-		varCalled = lookup($1,1);
-		
-		varCalled.register = $4.register;
-	
-		//System.out.println("@@ " + lookup($1,1).name + " " + $4.register);
-	
-	
-		try {
-
-			if(local){
-				out.write("sw $t" + $4.register + ", " + varCalled.position + "($sp)\n");
-				System.out.println("sw $t" + $4.register + ", " + varCalled.position + "($sp)");
-			} else {
-				out.write("sw $t" + $4.register + ", " + "global_" + varCalled.name + "\n");
-				System.out.println("sw $t" + $4.register + ", " + "global_" + varCalled.name);
-			}
-
-		} catch ( IOException e) { 
-			e.printStackTrace();
+		//System.out.println("@@ TYPE : " + $1.type);
+		if($1.type.equals("type")){
+			type = true;
+		} else {
+			type = false;
 		}
-		freeReg($4.register);
+		freeReg($1.register);
+	} ASSIGN_OP expression ';' 
+	{
+		if(type){
+			try {
+
+				out.write("sw $t" + $4.register + ", 0($t" + $1.typeRegister + ")\n");
+				System.out.println("sw $t" + $4.register + ", 0($t" + $1.typeRegister + ")");
+
+			} catch ( IOException e) { 
+				e.printStackTrace();
+			}
+			
+			
+			type = false;
+			freeReg($4.register);
+			freeReg($1.typeRegister);
+			
+		} else {
+			varCalled = lookup($1,1);
+		
+			varCalled.register = $4.register;
+	
+			//System.out.println("@@ " + lookup($1,1).name + " " + $4.register);
+	
+	
+			try {
+
+				if(local){
+					out.write("sw $t" + $4.register + ", " + varCalled.position + "($sp)\n");
+					System.out.println("sw $t" + $4.register + ", " + varCalled.position + "($sp)");
+				} else {
+					out.write("sw $t" + $4.register + ", " + "global_" + varCalled.name + "\n");
+					System.out.println("sw $t" + $4.register + ", " + "global_" + varCalled.name);
+				}
+
+			} catch ( IOException e) { 
+				e.printStackTrace();
+			}
+		
+			freeReg($4.register);
+		}
 	}
 	|	PRINTINT '(' expression ')' ';' 
 	{
-		//System.out.println("@@ REGISTER: " + $4.register);
+		System.out.println("@@ REGISTER: " + $3.register);
 		
 		try {
 
@@ -364,7 +424,7 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			out.write("syscall\t\t\t# Simply prints out a newline \n");
 			System.out.println("syscall\t\t\t# Simply prints out a newline");
 			
-			freeReg($4.register);
+			freeReg($3.register);
 
 		} catch ( IOException e) { 
 			e.printStackTrace();
@@ -434,11 +494,13 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			for(int i = 0, j = 40; i < 4; i++, j = j+4){		
 				out.write("lw $a" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $a" + i + ", " + j + "($sp)");
+				freeArgReg(i);
 			}
 			
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
 				out.write("lw $t" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $t" + i + ", " + j + "($sp)");
+				freeReg(i);
 			}	
 			
 			// Gather a register number for the return variable to go in.
@@ -518,11 +580,13 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			for(int i = 0, j = 40; i < 4; i++, j = j+4){		
 				out.write("lw $a" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $a" + i + ", " + j + "($sp)");
+				freeArgReg(i);
 			}
 			
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
 				out.write("lw $t" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $t" + i + ", " + j + "($sp)");
+				freeReg(i);
 			}
 			
 			// Gather a register number for the return variable to go in.
@@ -686,9 +750,42 @@ var:	ID
 
 		
 		$$.register = regNumber;
+		$$.type = "identifier";
 	}
 	|	ID '[' expression ']' 
-	|	ID '.' ID 
+	{
+		// Gathers a fre register number
+		regNumber = getReg();
+		
+		try {
+
+			out.write("la $t" + regNumber + ", " + "global_" + $1.name+ "\n");
+			System.out.println("la $t" + regNumber + ", " + "global_" + $1.name);
+			
+			out.write("mul $t" + $3.register + ", $t" + $3.register + ", 4\n");
+			System.out.println("mul $t" + $3.register + ", $t" + $3.register +  ", 4");
+			
+			out.write("add $t" + regNumber + ", $t" + regNumber + ", $t" + $3.register + "\n");
+			System.out.println("add $t" + regNumber + ", $t" + regNumber +  ", $t" + $3.register);
+			
+			// Gathers a fre register number
+			typeRegNumber = getReg();
+			
+			out.write("lw $t" + typeRegNumber + ", 0($t" + regNumber + ")\n");
+			System.out.println("lw $t" + typeRegNumber + ", 0($t" + regNumber +  ")");
+			
+			freeReg($3.register);
+			freeReg(regNumber);
+
+		} catch ( IOException e) { 
+			e.printStackTrace();
+		}
+		
+		$$.register = typeRegNumber;
+		$$.typeRegister = regNumber;
+		$$.type = "type";
+	}
+	|	ID '.' ID {$$.type = "type";}
 	;
 
 expression_list:	expression_list ',' expression
@@ -906,7 +1003,8 @@ bool2:	exp LESS exp
 			e.printStackTrace();
 		}
 
-		
+		freeReg($3.register);
+		freeReg($1.register);
 		$$.register = regNumber;
 	}
 	| exp NOT_EQUAL exp
@@ -1036,7 +1134,7 @@ term:	term '*' fact
 		freeReg($3.register);
 		$$.register = $1.register;
 	}
-	|	fact { $$.register = regNumber; }
+	|	fact { $$.register = $1.register; }
 	;
 
 fact:	'-' fact 
@@ -1051,7 +1149,7 @@ fact:	'-' fact
 		}
 		
 	}
-	|	factor { $$.register = regNumber; }
+	|	factor { $$.register = $1.register; }
 	;
 
 factor:	'(' expression ')' {$$.register = $2.register;}
@@ -1220,7 +1318,7 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 		}
 		$$.register = regNumber;
 	}
-	|	var { $$.register = regNumber; }
+	|	var { $$.register = $1.register; }
 	|	GETINT '(' ')'
 	{
 		
@@ -1309,13 +1407,14 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	private int[] argRegisters = new int[4];
 	
 	// regNumber - number received from getReg()
-	private int regNumber;
+	private int regNumber, typeRegNumber;
 	private int stackVars = 56;
 		
 	// local - a boolean denoting if we are in local or global scope.
 	// function - a boolean denoting if expression needs to keep track of formal parameters of procedures
 	// main - are we inside the main function?
-	private boolean local, function, main= false;
+	// type - are we dealing with a type (array or record)?
+	private boolean local, function, main, type= false;
 	
 	BufferedWriter out;
 	
@@ -1452,7 +1551,7 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	  * @return Semantic - an instance of the found function
 	  */
 	 @SuppressWarnings("unchecked")
-	 private Semantic lookupFunction(Semantic value){	 	 
+	 private Semantic lookupGlobal(Semantic value){	 	 
 
 		 // Grab the global scope
 		 global = (LinkedList) symbolTable.getLast();
@@ -1527,10 +1626,11 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 		private String name;			// Name of the identifier
 		private String type;			// Type of the identifier
 		private int register;			// Register where the value is being held
-		private int argRegister; 		// Argument register where the value is being held (on function call)
+		private int typeRegister;		// Register where the index of the type is being held
+		//private int argRegister; 		// Argument register where the value is being held (on function call)
 		private int position;			// Position on the stack
-		private boolean param = false;	// Is the identifier a parameter in some function?
-		
+		//private boolean param = false;	// Is the identifier a parameter in some function?
+		private int typeSize;			// Size of the type being declared.
 		// parameters - List which holds the parameters of a function
 		public LinkedList<String> variables = new LinkedList<String>();
 		
