@@ -7,19 +7,38 @@ import java.util.*;
  * CS540 - Program 4
  *
  * Of Note:  The actual production items are on the same line as the closing curly brackets
+ * 
+ * This program outputs spim code both to standard out and to a file named 'output.s'
+ * For some reason, the throws clause wouldn't work in the set-up code, so my code is riddled with try/catch clauses
+ * 	which I could not remedy.
+
+
+	Use instructions are included in the bash script file .  You simply need to run byacc on Parser.y and jflex on Lexer.l
+
+	You can then run Parser with any MinC file as its input on the command line
+
+	To then run the compiled MinC code, you must use “spim -f ‘output.s’”
+
+	#! /bin/bash
+	clear
+	echo "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
+
+	/Users/aaron/Desktop/Dropbox/Development/Tools/Yacc/yacc.macosx -v -Jsemantic=Semantic Parser.y
+	javac Parser.java
+
+	#java -jar /Users/aaron/Desktop/Dropbox/Development/Tools/JFlex/JFlex.jar /Users/aaron/Desktop/Dropbox/CS/CS540/Program4/Lexer.l
+	#javac /Users/aaron/Desktop/Dropbox/CS/CS540/Program4/Lexer.java
+
+	java Parser /Users/aaron/Desktop/Dropbox/CS/CS540/Program4/Tests/sort.mc
+	echo
+	spim -lstack 2000000 -f "output.s"
  */
 
-/*
-	TODO Work on Arrays/Records - LAST
-	TODO Look for registers to be freed (expressions that take more than 2 registers) 
-*/
 %}
  
 %token ID NUM IF ELSE WHILE TRUE FALSE BOOL INT TYPE_ID RETURN PRINTINT GETINT ASSIGN_OP LOGICAL_NOT LOGICAL_AND LOGICAL_OR
 %token LESS LESS_EQUAL GREATER GREATER_EQUAL EQUAL NOT_EQUAL
  
-//%left REL_OP
-//%left LOGICAL_AND LOGICAL_OR
 %left LOGICAL_NOT
 %left '+' '-'
 %left '*'
@@ -81,32 +100,30 @@ program:	program  prog_decls
 
 prog_decls:	fn_decl	 { }  
 	| 	var_decl 
-	{ 
-		/*try {
-			
-			// out.write("\t.data\n");
-			// System.out.println("\t.data");
-		
-		} catch ( IOException e) { 
-			e.printStackTrace();
-		}*/
-		
-	}
 	| 	type_decl	
 	;
 
 fn_decl: type ID 
 	{   
+		// We are in local scope now that we are inside a function
 		local = true;
+		
+		// Insert the function onto the symbol table.
 		insert($2, $1.name); 
+		
 		currentFunct = $2;
 		enterScope(); 
+		
+		// Free all registers, nothing is needed at this point
+		freeAll();
+		freeAllArg();
 		
 		try {
 			
 			out.write("\n\t.text\n");
 			System.out.println("\n\t.text");
 			
+			// We are inside main
 			if($2.name.equals("main")){
 				out.write("\n####################################\n");
 				System.out.println("\n####################################");
@@ -117,7 +134,11 @@ fn_decl: type ID
 				
 				out.write(new String($2.name).toLowerCase() + ":\n\n");
 				System.out.println(new String($2.name).toLowerCase() + ":\n");
+				
+				// We are inside main 
 				main = true;
+				
+			// We are inside another function	
 			}else {
 				out.write("\n####################################\n");
 				System.out.println("\n####################################");
@@ -129,22 +150,7 @@ fn_decl: type ID
 				out.write(new String($2.name).toLowerCase() + "_fn:\n\n");
 				System.out.println(new String($2.name).toLowerCase() + "_fn:\n");
 			}
-			
-			/*out.write("addi $sp, $sp, -104 # Allocates a new frame for the process\n");
-			System.out.println("addi $sp, $sp, -104 # Allocates a new frame for the process");
-			
-			out.write("sw $fp, 4($sp)\n");
-			System.out.println("sw $fp, 4($sp)");
-			for(int i = 0, j = 8; i < 8; i++, j = j+4){
-				out.write("sw $t" + i + ", " + j + "($sp)\n");
-				System.out.println("sw $t" + i + ", " + j + "($sp)");
-			}
-			
-			for(int i = 0, j = 40; i < 4; i++, j = j+4){		
-				out.write("sw $a" + i + ", " + j + "($sp)\n");
-				System.out.println("sw $a" + i + ", " + j + "($sp)");
-			}*/
-			
+
 			out.write("\t.text\n");
 			System.out.println("\t.text");
 
@@ -152,41 +158,26 @@ fn_decl: type ID
 			e.printStackTrace();
 		}
 		regNumber = 0;
-		stackVars = 56;
-	}params '{' 
+		stackVars = 56;		// The parameters and local vars start at position 56 on the stack
+		
+	}params '{' var_decls
 	{
-		
-		
-		
-	}var_decls
-	{
+		// Set the functions position as 56 - avoids null values
 		currentFunct.position = stackVars;
+		
 		try {
-
-			/*out.write("\n\t.text\n");
-			System.out.println("\n\t.text");*/
 			
 			// Step 11 of the Stack Discipline - Save the return address of the calling function. 
 			out.write("sw $ra, 0($sp)\t\t# Save the return address of the caller\n");
 			System.out.println("sw $ra, 0($sp)\t\t# Save the return address of the caller");
 			
-			// Step 12 of the Stack Discipline - Save the parameters onto the stack
-			for(int i = 0, j = 40; i < 4; i++, j = j+4){		
-				out.write("sw $a" + i + ", " + j + "($sp)\n");
-				System.out.println("sw $a" + i + ", " + j + "($sp)");
-				freeArgReg(i);
-			}
-			
-			for(int i = 0, j = 8; i < 8; i++, j = j+4){
-				freeReg(i);
-			}
+			// Free all temporary registers at this point
+			freeAll();
 			
 			// Prints out a newline in the source code - aesthetic purposes
 			out.write("\n");
 			System.out.println();
 			
-			
-
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
@@ -194,13 +185,18 @@ fn_decl: type ID
 	} statements '}'	
 	
 	{ 
-		exitScope(); 
+		exitScope();
+		
+		// We are no longer in local scope 
 		local = false;
 		
 		try {
+			
+			// We are inside a function other than main
 			if(!main){
 				
-				// Step 14 of the Stack Discipline - Load saved return address and jump to it
+				// Step 14 of the Stack Discipline - Load saved return address and jump to it.
+				//  This is to catch a function without a return
 				out.write("lw $ra, 0($sp)\t\t# Load the return value of the calling function\n");
 				System.out.println("lw $ra, 0($sp)\t\t# Load the return value of the calling function");
 				
@@ -208,7 +204,7 @@ fn_decl: type ID
 				out.write("jr $ra\t\t\t# Jump to the return address of the caller\n");
 				System.out.println("jr $ra\t\t\t# Jump to the return address of the caller");
 				
-				
+			// We are inside the main funciton, so we should not jump to the return address
 			} else {
 				out.write("# main should break through to exit the program\n");
 				System.out.println("# main should break through to exit the program");
@@ -217,7 +213,6 @@ fn_decl: type ID
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
-		
 	}
 	;
 
@@ -226,39 +221,48 @@ var_decl:	type ID ';'
 		// Local scope
 		if(local){
 			
+			// Save a place on the stack for this local variable
 			try {
-				/*out.write("local_" + $2.name + ": .word 0\n");
-				System.out.println("local_" + $2.name + ": .word 0");*/
-				
 				out.write("sw $zero" + ", " +  stackVars + "($sp)\t# Save the local vars on the stack\n");
 				System.out.println("sw $zero" + ", " +  stackVars + "($sp)\t# Save the local vars on the stack");
 				regNumber++;
 				stackVars = stackVars+4;
 				
-				
 			} catch ( IOException e) { 
 				e.printStackTrace();
 			}
+			
+			// Add the variable to the functions local variable list
 			currentFunct.variables.add($2.name);
 			
 		// Global Scope
 		}else{
+			
+			// The variable is a type
 			if($1.type.equals("type")){
+				
+				// Lookup the type in the global scope
 				typeCalled = lookupGlobal($1);
-								
+				
+				// If there are variables, it must be a record, so make the declaration have that types variables as well
+				if(typeCalled.variablesInRecord != null){
+					$2.variablesInRecord = typeCalled.variablesInRecord;
+				}
+				
+				// Allocate space for the declaration
 				try {
-
-					out.write("global_" + $2.name + ": .space " + (typeCalled.typeSize) + "\t# Allocates space for the array\n");
-					System.out.println("global_" + $2.name + ": .space " + (typeCalled.typeSize) + "\t# Allocates space for the array");
+					out.write("global_" + $2.name + ": .space " + (typeCalled.typeSize) + "\t# Allocates space for the type\n");
+					System.out.println("global_" + $2.name + ": .space " + (typeCalled.typeSize) + "\t# Allocates space for the type");
 
 				} catch ( IOException e) { 
 					e.printStackTrace();
 				}
 				
+			// The variable is either an int or bool
 			} else {
 				
+				// Allocate space for the declaration
 				try {
-				
 					out.write("global_" + $2.name + ": .word 0\n");
 					System.out.println("global_" + $2.name + ": .word 0");
 				
@@ -266,34 +270,56 @@ var_decl:	type ID ';'
 					e.printStackTrace();
 				}
 			}
-			
 		}
-		 
-		insert($2, $1.name); 
-		//$2.argRegister = -1;
-	
+		
+		// Add the variable to the symbol table
+		insert($2, $1.name); 	
 	}
 	;
 
 type_decl:	type '[' NUM ']' TYPE_ID ';' 
-	{ 	
-		/*try {
-			
-			out.write("global_" + $5.name + ": .space " + (Integer.parseInt($3.name)*4) + "\t# Allocates space for the array\n");
-			System.out.println("global_" + $5.name + ": .space " + (Integer.parseInt($3.name)*4) + "\t# Allocates space for the array");
-			
-		} catch ( IOException e) { 
-			e.printStackTrace();
-		}*/
-		
+	{ 			
+		// Insert the type declaration onto the symbol table
 		insert($5, $1.name);
+		
+		// Set the size of this array
 		$5.typeSize = Integer.parseInt($3.name)*4;
+		
+		// This is not a record, so there are no associated variables
+		$5.variablesInRecord = null;
 	} 
-	|	'{' type_list '}' TYPE_ID ';' { insert($5, "type_list"); }
+	|	'{' {recordDeclarations.clear(); numOfRecordTypes = 0;} type_list '}' TYPE_ID ';' 
+	{ 
+		// Insert the declaration onto the symbol table
+		insert($5, "type_list"); 
+		
+		// Set the size of this record
+		$5.typeSize = numOfRecordTypes * 4;
+	
+		$5.variablesInRecord = recordDeclarations;
+	}
 	;
 
-type_list:	type_list type ID ';' {	insert($3, $2.name); }
-	|	type ID ';' { insert($2, $1.name); }
+type_list:	type_list type ID ';' 
+	{	
+		// Insert this variable in the symbol table
+		insert($3, $2.name); 
+		
+		numOfRecordTypes++; // Add to the counter of variables declared inside the record
+		
+		// Add the declaration to the linkedlist of variables declared inside this record
+		recordDeclarations.addLast($3);
+	}
+	|	type ID ';' 
+	{ 
+		// Insert this variable into the symbol table
+		insert($2, $1.name); 
+		
+		numOfRecordTypes++; // Add to the counter of variables declared inside the record
+		
+		// Add the declaration to the linkedlist of variables declared inside this record
+		recordDeclarations.addLast($3);
+	}
 	;
 
 type:	INT		{$$.type = "int";}
@@ -307,12 +333,13 @@ params:	'(' ')'
 
 param_list:	param_list ',' type ID 
 	{ 
+		// Insert this variable onto the symbol table
 		insert($4, $3.name); 
-		/*$4.argRegister = regNumber++;*/
-		// $4.param = true;
-		currentFunct.variables.add($4.name);
-		//System.out.println("@@ REG: " + $4.name + " " + $4.argRegister);
 		
+		// Add this variable to the current function
+		currentFunct.variables.add($4.name);
+		
+		// Step 12 of the Stack Discipline - Save the parameters onto the stack
 		try {
 			out.write("sw $a" + regNumber + ", " +  stackVars + "($sp)\t\t# Save the parameters on the stack\n");
 			System.out.println("sw $a" + regNumber + ", " +  stackVars + "($sp)\t\t# Save the parameters on the stack");
@@ -322,18 +349,17 @@ param_list:	param_list ',' type ID
 			e.printStackTrace();
 		}
 		
-	
 	}
 	|	type ID 
 	{ 
+		// Insert this variable onto the symbol table
 		insert($2, $1.name); 
-		//$2.argRegister = regNumber++;
-		//$2.param = true;
-		currentFunct.variables.add($2.name);
-		//System.out.println("@@ REG " + $2.name + " " + $2.argRegister);
 		
+		// Add this variable to the current function
+		currentFunct.variables.add($2.name);
+		
+		// Step 12 of the Stack Discipline - Save the parameters onto the stack
 		try {
-
 			out.write("sw $a" + regNumber + ", " + stackVars + "($sp)\t\t# Save the parameters on the stack\n");
 			System.out.println("sw $a" + regNumber + ", " +  stackVars + "($sp)\t\t# Save the parameters on the stack");
 			regNumber++;
@@ -355,18 +381,22 @@ var_decls:	var_decls var_decl
 statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls statements '}' {exitScope();}
 	|	var 
 	{
-		//System.out.println("@@ TYPE : " + $1.type);
+		// The object on the left side is a type (array or record)
 		if($1.type.equals("type")){
 			type = true;
+			
+		// The variable must be an int or bool
 		} else {
 			type = false;
 		}
+		
 		freeReg($1.register);
 	} ASSIGN_OP expression ';' 
 	{
+		// If the left side was a type
 		if(type){
+			
 			try {
-
 				out.write("sw $t" + $4.register + ", 0($t" + $1.typeRegister + ")\n");
 				System.out.println("sw $t" + $4.register + ", 0($t" + $1.typeRegister + ")");
 
@@ -374,24 +404,27 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 				e.printStackTrace();
 			}
 			
-			
 			type = false;
 			freeReg($4.register);
 			freeReg($1.typeRegister);
-			
-		} else {
-			varCalled = lookup($1,1);
 		
+		// The left side was not an array or record
+		} else {
+			
+			// Lookup the variable on the symbol table
+			varCalled = lookup($1,1);
+			
+			// Set the variables register to the output of the expression
 			varCalled.register = $4.register;
-	
-			//System.out.println("@@ " + lookup($1,1).name + " " + $4.register);
-	
-	
+			
 			try {
-
+				
+				// If we are in a function, then save the expression to the correct position on the stack
 				if(local){
 					out.write("sw $t" + $4.register + ", " + varCalled.position + "($sp)\n");
 					System.out.println("sw $t" + $4.register + ", " + varCalled.position + "($sp)");
+				
+				// If we are not in local scope, save the expression to the static space
 				} else {
 					out.write("sw $t" + $4.register + ", " + "global_" + varCalled.name + "\n");
 					System.out.println("sw $t" + $4.register + ", " + "global_" + varCalled.name);
@@ -405,9 +438,8 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 		}
 	}
 	|	PRINTINT '(' expression ')' ';' 
-	{
-		System.out.println("@@ REGISTER: " + $3.register);
-		
+	{		
+		// Print out the expression and a following newline
 		try {
 
 			out.write("li $v0, 1\n");
@@ -430,7 +462,6 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			e.printStackTrace();
 		}
 		
-		
 	}
 	|	ID '(' ')' ';' 
 	{
@@ -441,13 +472,7 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			out.write("# Stack maintenance for a function call #\n");
 			System.out.println("# Stack maintenance for a function call #");
 			out.write("#########################################\n");
-			System.out.println("#########################################");
-			
-		/*	// Allocate the frame necessary for the calling function
-			out.write("addi $sp, $sp, -104\t# Allocates a new frame for the caller\n");
-			System.out.println("addi $sp, $sp, -104\t# Allocates a new frame for the caller");
-		*/
-			
+			System.out.println("#########################################");			
 			
 			// Step 1 of the Stack Discipline - Save all pertinent registers needed by the calling function
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
@@ -474,9 +499,13 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			
 			// Step 6 of the Stack Discipline -  Jump to the start of the callee function
 			// If the function is main, just use that name, otherwise we need to append _fn on the end.
+			
+			// We are in main, jump to that label only
 			if ($1.name.equals("main")) {
 				out.write("jal " + $1.name + "\t\t# Jump to the main function\n");
 				System.out.println("jal " + $1.name + "\t\t# Jump to the main function");
+			
+			// We are not in main, append _fn to the end of all function labels.
 			} else {
 				out.write("jal " + $1.name + "_fn\t\t# Jump to the callee function\n");
 				System.out.println("jal " + $1.name + "_fn\t\t# Jump to the callee function");
@@ -494,15 +523,19 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			for(int i = 0, j = 40; i < 4; i++, j = j+4){		
 				out.write("lw $a" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $a" + i + ", " + j + "($sp)");
-				freeArgReg(i);
 			}
+			
+			// Free all argument registers
+			freeAllArg();
 			
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
 				out.write("lw $t" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $t" + i + ", " + j + "($sp)");
-				freeReg(i);
 			}	
 			
+			// Free all temorary registers
+			freeAll();
+					
 			// Gather a register number for the return variable to go in.
 			regNumber = getReg();
 			
@@ -525,11 +558,7 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			System.out.println("# Stack maintenance for a function call #");
 			out.write("#########################################\n");
 			System.out.println("#########################################");
-	
-		/*	// Allocate the frame necessary for the calling function
-			out.write("addi $sp, $sp, -104\t# Allocates a new frame for the caller\n");
-			System.out.println("addi $sp, $sp, -104\t# Allocates a new frame for the caller");
-		*/				
+				
 			// Step 1 of the Stack Discipline - Save all pertinent registers needed by the calling function
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
 				out.write("sw $t" + i + ", " + j + "($sp)\n");
@@ -551,6 +580,9 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 		
 		// Trigger to capture the arguments needed for the procedure.
 		function = true;
+		
+		// Clear the argument registers
+		freeAllArg();
 		
 	} expression_list ')' ';' 
 	{
@@ -583,11 +615,17 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 				freeArgReg(i);
 			}
 			
+			// Free all argument registers
+			freeAllArg();
+			
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
 				out.write("lw $t" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $t" + i + ", " + j + "($sp)");
 				freeReg(i);
 			}
+			
+			// Free all registers, nothing is needed at this point
+			freeAll();
 			
 			// Gather a register number for the return variable to go in.
 			regNumber = getReg();
@@ -599,14 +637,15 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
-		
-		
 	}
 	|	WHILE '(' 
 	{	
 		// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
 		randomConditionalID = UUID.randomUUID().toString().substring(0,5);
-
+		
+		// Push the label onto the stack
+		conditionalLabels.push(randomConditionalID);
+		
 		try {
 
 			out.write("\nwhile_" + randomConditionalID + ":\t\t# Start of a while loop\n");
@@ -618,7 +657,7 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 		
 	} expression ')'
 	{
-
+		
 		try {
 			
 			out.write("beq $t" + $4.register + ", $zero, skip_while_" + randomConditionalID + "\t# While condition\n");
@@ -627,8 +666,12 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
 	} statement
 	{
+		// Pop the random ID off of the stack
+		randomConditionalID = conditionalLabels.pop();
+		
 		try {
 			
 			out.write("j while_" + randomConditionalID + "\t\t# Jump back to the while condition\n");
@@ -641,6 +684,7 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 			e.printStackTrace();
 		}
 		
+		freeAll();
 	}
 	|	if_first ELSE
 	{
@@ -655,6 +699,8 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 
 	}statement
 	{
+		// Pop the label off of the stack
+		randomConditionalID = conditionalLabels.pop();
 		try {
 
 			out.write("end_if_" + randomConditionalID + ":\t\t# End of the if statement\n");
@@ -663,57 +709,93 @@ statement:	'{' {enterScope(); stackVars = currentFunct.position;} var_decls stat
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
+		freeAll();
 	} 
 	|	if_first %prec SHIFT_ELSE
 	{
-		{
-			try {
-
-				out.write("skip_if_" + randomConditionalID + ":\n");
-				System.out.println("skip_if_" + randomConditionalID + ":");
-				
-				out.write("end_if_" + randomConditionalID + ":\t\t# End of the if statement\n");
-				System.out.println("end_if_" + randomConditionalID + ":\t\t# End of the if statement");
-				
-
-			} catch ( IOException e) { 
-				e.printStackTrace();
-			}
-
-		}
-	}
-	|	RETURN '(' ')' ';' 
-	|	RETURN '(' expression ')' ';' 
-	{
-		//System.out.println("@@ RETURN: " + $3.register + " " + $3.name);
+		// Need to pop the label off, it was peek() in if_first
+		randomConditionalID = conditionalLabels.pop();
+		
 		try {
 
-			out.write("move $v0, $t" + $3.register + "\t\t# Move the return value to the return register\n");
-			System.out.println("move $v0, $t" + $3.register + "\t\t# Move the return value to the return register");
+			out.write("skip_if_" + randomConditionalID + ":\n");
+			System.out.println("skip_if_" + randomConditionalID + ":");
+			
+			out.write("end_if_" + randomConditionalID + ":\t\t# End of the if statement\n");
+			System.out.println("end_if_" + randomConditionalID + ":\t\t# End of the if statement");
+			
 
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
 		
+		freeAll();
+	}
+	|	RETURN '(' ')' ';' 
+	{
+		// Step 14 of the Stack Discipline - Load saved return address
+		try {
+						
+			out.write("lw $ra, 0($sp)" + "\t\t# Load the return value\n");
+			System.out.println("lw $ra, 0($sp)" + "\t\t# Load the return value");
+			
+			out.write("jr $ra" + "\t\t# Jump to the return register\n");
+			System.out.println("jr $ra" + "\t\t# Jump to the return register");
+			
+		} catch ( IOException e) { 
+			e.printStackTrace();
+		}
+	}
+	|	RETURN '(' expression ')' ';' 
+	{
+				
+		try {
+
+			// Step 13 of the Stack Discipline - Move the return value to the return register
+			out.write("move $v0, $t" + $3.register + "\t\t# Move the return value to the return register\n");
+			System.out.println("move $v0, $t" + $3.register + "\t\t# Move the return value to the return register");
+			
+			// Step 14 of the Stack Discipline - Load saved return address
+			out.write("lw $ra, 0($sp)" + "\t\t# Load the return value\n");
+			System.out.println("lw $ra, 0($sp)" + "\t\t# Load the return value");
+			
+			out.write("jr $ra" + "\t\t# Jump to the return register\n");
+			System.out.println("jr $ra" + "\t\t# Jump to the return register");
+			
+
+		} catch ( IOException e) { 
+			e.printStackTrace();
+		}
+		
+		freeReg($3.register);
 	}
 	;
+	
 if_first: IF '(' expression ')' 
 	{
-		{
-			// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
-			randomConditionalID = UUID.randomUUID().toString().substring(0,5);
+		
+		// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
+		randomConditionalID = UUID.randomUUID().toString().substring(0,5);
 
-			try {
+		// Push the label onto the stack
+		conditionalLabels.push(randomConditionalID);
+		
+		try {
 
-				out.write("\nbeq $t" + $3.register + ", $zero, skip_if_" + randomConditionalID + "\t# Start of an if statement\n");
-				System.out.println("\nbeq $t" + $3.register + ", $zero, skip_if_" + randomConditionalID + "\t# Start of an if statement");
-
-			} catch ( IOException e) { 
-				e.printStackTrace();
-			}
+			out.write("\nbeq $t" + $3.register + ", $zero, skip_if_" + randomConditionalID + "\t# Start of an if statement\n");
+			System.out.println("\nbeq $t" + $3.register + ", $zero, skip_if_" + randomConditionalID + "\t# Start of an if statement");	
+			
+		} catch ( IOException e) { 
+			e.printStackTrace();
 		}
+		
+		freeReg($3.register);
+		
 	} statement
 	{
+		// Peek at the random ID that is sitting on the stack, we don't want to prematurely pop it here
+		randomConditionalID = conditionalLabels.peek();
 		try {
 
 			out.write("\nj end_if_" + randomConditionalID + "\t\t# Jump to end of the if statement\n");
@@ -723,21 +805,24 @@ if_first: IF '(' expression ')'
 			e.printStackTrace();
 		}
 	}
-	
 	;
 var:	ID 
 	{	
 		
-		// Looks up the variable's object
+		// Find the variable in the symbol table
 		varCalled = lookup($1,1);
-		// Gathers a fre register number
+		
+		// Gathers a free register number
 		regNumber = getReg();
 		
 		try {
-
+			
+			// We are in the local scope, load it from the stack
 			if(local){
 				out.write("lw $t" + regNumber + ", " + varCalled.position + "($sp)\n");
 				System.out.println("lw $t" + regNumber + ", " + varCalled.position + "($sp)");
+			
+			// We are in the global scope, prefix with "global_"
 			} else {
 				out.write("lw $t" + regNumber + ", " + "global_" + varCalled.name+ "\n");
 				System.out.println("lw $t" + regNumber + ", " + "global_" + varCalled.name);
@@ -746,15 +831,13 @@ var:	ID
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
-		
 
-		
 		$$.register = regNumber;
 		$$.type = "identifier";
 	}
 	|	ID '[' expression ']' 
 	{
-		// Gathers a fre register number
+		// Gathers a free register number
 		regNumber = getReg();
 		
 		try {
@@ -768,15 +851,14 @@ var:	ID
 			out.write("add $t" + regNumber + ", $t" + regNumber + ", $t" + $3.register + "\n");
 			System.out.println("add $t" + regNumber + ", $t" + regNumber +  ", $t" + $3.register);
 			
-			// Gathers a fre register number
+			// Gathers a free register number
 			typeRegNumber = getReg();
 			
 			out.write("lw $t" + typeRegNumber + ", 0($t" + regNumber + ")\n");
 			System.out.println("lw $t" + typeRegNumber + ", 0($t" + regNumber +  ")");
 			
 			freeReg($3.register);
-			freeReg(regNumber);
-
+			
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
@@ -785,15 +867,51 @@ var:	ID
 		$$.typeRegister = regNumber;
 		$$.type = "type";
 	}
-	|	ID '.' ID {$$.type = "type";}
+	|	ID '.' ID 
+	{	
+		// Gathers a free register number
+		regNumber = getReg();
+		
+		// Find the record in the global scope 
+		recordCalled = lookupGlobal($1);
+		
+		// Iterate through all the variables contained in the record
+		for(int i = 0; i < recordCalled.variablesInRecord.size(); i++){
+			
+			// If the variable referenced is found
+			if(recordCalled.variablesInRecord.get(i).name.equals($3.name)){
+				
+				try {
+					out.write("la $t" + regNumber + ", " + "global_" + $1.name+ "\n");
+					System.out.println("la $t" + regNumber + ", " + "global_" + $1.name);
+
+					out.write("addi $t" + regNumber + ", $t" + regNumber + ", " + (i*4) + "\n");
+					System.out.println("addi $t" + regNumber + ", $t" + regNumber + ", " + (i*4));
+
+					// Gathers a free register number
+					typeRegNumber = getReg();
+
+					out.write("lw $t" + typeRegNumber + ", 0($t" + regNumber + ")\n");
+					System.out.println("lw $t" + typeRegNumber + ", 0($t" + regNumber +  ")");
+
+				} catch ( IOException e) { 
+					e.printStackTrace();
+				}
+			}
+		}
+		$$.register = typeRegNumber;
+		$$.typeRegister = regNumber;
+		$$.type = "type";
+	}
 	;
 
 expression_list:	expression_list ',' expression
 	{
-		if(function){
-			//System.out.println("@@ FUNCTION ARG: " + $3.name + " " + $3.register);
-			
+		// We are inside a function
+		if(function){			
 			try {
+				
+				// Gather a new argument register
 				regNumber = getArgReg();
 				
 				// Step 2 of the Stack Discipline - Move actual parameters to the $a registers
@@ -804,14 +922,17 @@ expression_list:	expression_list ',' expression
 				e.printStackTrace();
 			}
 			
+			freeReg($3.register);
 		}
 	}
 	|	expression
 	{
+		// We are inside a function
 		if(function){
-			//System.out.println("@@ FUNCTION ARG: " + $1.name + " " + $1.register);
 			
 			try {
+				
+				// Gather a new argument register
 				regNumber = getArgReg();
 				
 				// Step 2 of the Stack Discipline - Move actual parameters to the $a registers
@@ -821,7 +942,7 @@ expression_list:	expression_list ',' expression
 			} catch ( IOException e) { 
 				e.printStackTrace();
 			}
-			
+			freeReg($1.register);
 		}
 	}
 	;
@@ -839,6 +960,7 @@ expression:	bool1 LOGICAL_AND bool1
 	
 		// Free the register
 		freeReg($3.register);
+		
 		$$.register = $1.register;
 		
 	}
@@ -855,6 +977,7 @@ expression:	bool1 LOGICAL_AND bool1
 		
 		// Free the register
 		freeReg($3.register);
+		
 		$$.register = $1.register;
 	}
 	|	bool1 
@@ -870,12 +993,15 @@ bool1:	LOGICAL_NOT bool1
 		randomID = UUID.randomUUID().toString().substring(0,5);
 			
 		try {
-
+			
+			// If bool1 is 0, jump to the false_branch and make it 1
 			out.write("beq $zero, $t" + $2.register + " false_branch_" + randomID + "\n");	
 			System.out.println("beq $zero, $t" + $2.register + " false_branch_" + randomID);
 			
 			out.write("move $t" + $2.register + ", $zero\t# Make it false if it was true\n");
 			System.out.println("move $t" + $2.register + ", $zero\t# Make it false if it was true");
+			
+			// Jump to the end
 			out.write("j end_" + randomID + "\n");
 			System.out.println("j end_" + randomID);
 			
@@ -910,14 +1036,16 @@ bool2:	exp LESS exp
 			e.printStackTrace();
 		}
 		
+		// Free registers
+		freeReg($1.register);
+		freeReg($3.register);
+		
 		$$.register = regNumber;
 		
 	}
 	| exp LESS_EQUAL exp 
 	{
-		// Gather a register number for the return variable to go in.
-		regNumber = getReg();
-		
+
 		// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
 		randomID = UUID.randomUUID().toString().substring(0,5);
 		
@@ -926,6 +1054,13 @@ bool2:	exp LESS exp
 			// If they really are not equal - branch
 			out.write("ble $t" + $1.register + ", $t" + $3.register + ", less_equal_" + randomID + "\n");
 			System.out.println("ble $t" + $1.register + ", $t" + $3.register + ", less_equal_" + randomID);
+			
+			// Free registers
+			freeReg($1.register);
+			freeReg($3.register);
+			
+			// Gather a register number for the return variable to go in.
+			regNumber = getReg();
 			
 			// Fall through if they are not less than or equal to
 			out.write("addi $t" + regNumber + ", $zero, 0\n");
@@ -953,8 +1088,6 @@ bool2:	exp LESS exp
 	}
 	| exp GREATER_EQUAL exp
 	{
-		// Gather a register number for the return variable to go in.
-		regNumber = getReg();
 		
 		// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
 		randomID = UUID.randomUUID().toString().substring(0,5);
@@ -964,6 +1097,13 @@ bool2:	exp LESS exp
 			// If they really are not equal - branch
 			out.write("ble $t" + $3.register + ", $t" + $1.register + ", less_equal_" + randomID + "\n");
 			System.out.println("ble $t" + $3.register + ", $t" + $1.register + ", less_equal_" + randomID);
+			
+			// Free registers
+			freeReg($1.register);
+			freeReg($3.register);
+			
+			// Gather a register number for the return variable to go in.
+			regNumber = getReg();
 			
 			// Fall through if they are not less than or equal to
 			out.write("addi $t" + regNumber + ", $zero, 0\n");
@@ -1003,14 +1143,14 @@ bool2:	exp LESS exp
 			e.printStackTrace();
 		}
 
+		// Free registers
 		freeReg($3.register);
 		freeReg($1.register);
+		
 		$$.register = regNumber;
 	}
 	| exp NOT_EQUAL exp
 	{
-		// Gather a register number for the return variable to go in.
-		regNumber = getReg();
 		
 		// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
 		randomID = UUID.randomUUID().toString().substring(0,5);
@@ -1020,6 +1160,13 @@ bool2:	exp LESS exp
 			// If they really are not equal - branch
 			out.write("bne $t" + $1.register + ", $t" + $3.register + ", not_equal_" + randomID + "\n");
 			System.out.println("bne $t" + $1.register + ", $t" + $3.register + ", not_equal_" + randomID);
+			
+			// Free registers
+			freeReg($1.register);
+			freeReg($3.register);
+			
+			// Gather a register number for the return variable to go in.
+			regNumber = getReg();
 			
 			// Fall through if they are equal
 			out.write("addi $t" + regNumber + ", $zero, 0\n");
@@ -1047,8 +1194,6 @@ bool2:	exp LESS exp
 	}
 	| exp EQUAL exp
 	{
-		// Gather a register number for the return variable to go in.
-		regNumber = getReg();
 		
 		// Grabs a random ID of 5 characters.  The ID's are originally too long for this situation
 		randomID = UUID.randomUUID().toString().substring(0,5);
@@ -1058,6 +1203,13 @@ bool2:	exp LESS exp
 			// If they really are not equal - branch
 			out.write("bne $t" + $1.register + ", $t" + $3.register + ", not_equal_" + randomID + "\n");
 			System.out.println("bne $t" + $1.register + ", $t" + $3.register + ", not_equal_" + randomID);
+			
+			// Free registers
+			freeReg($1.register);
+			freeReg($3.register);
+			
+			// Gather a register number for the return variable to go in.
+			regNumber = getReg();
 			
 			// Fall through if they are equal
 			out.write("addi $t" + regNumber + ", $zero, 1\n");
@@ -1099,6 +1251,7 @@ exp:	exp '+' term
 		
 		// Free the register
 		freeReg($3.register);
+		
 		$$.register = $1.register;
 	}
 	|	exp '-' term 
@@ -1114,6 +1267,7 @@ exp:	exp '+' term
 		
 		// Free the register
 		freeReg($3.register);
+		
 		$$.register = $1.register;
 	}
 	|	term { $$.register = $1.register; }
@@ -1132,6 +1286,7 @@ term:	term '*' fact
 		
 		// Free the register
 		freeReg($3.register);
+		
 		$$.register = $1.register;
 	}
 	|	fact { $$.register = $1.register; }
@@ -1148,6 +1303,8 @@ fact:	'-' fact
 			e.printStackTrace();
 		}
 		
+		$$.register = $2.register;
+		
 	}
 	|	factor { $$.register = $1.register; }
 	;
@@ -1163,12 +1320,6 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 			System.out.println("# Stack maintenance for a function call #");
 			out.write("#########################################\n");
 			System.out.println("#########################################");
-			
-		/*	// Allocate the frame necessary for the calling function
-			out.write("addi $sp, $sp, -104\t# Allocates a new frame for the caller\n");
-			System.out.println("addi $sp, $sp, -104\t# Allocates a new frame for the caller");
-		*/
-			
 			
 			// Step 1 of the Stack Discipline - Save all pertinent registers needed by the calling function
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
@@ -1195,9 +1346,13 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 			
 			// Step 6 of the Stack Discipline -  Jump to the start of the callee function
 			// If the function is main, just use that name, otherwise we need to append _fn on the end.
+			
+			// We are inside main, call the function as "main"
 			if ($1.name.equals("main")) {
 				out.write("jal " + $1.name + "\t\t# Jump to the main function\n");
 				System.out.println("jal " + $1.name + "\t\t# Jump to the main function");
+				
+			// We are not in main, so append _fn to it
 			} else {
 				out.write("jal " + $1.name + "_fn\t\t# Jump to the callee function\n");
 				System.out.println("jal " + $1.name + "_fn\t\t# Jump to the callee function");
@@ -1232,6 +1387,7 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
 		$$.register = regNumber;
 	}
 	|	ID '(' 
@@ -1244,11 +1400,7 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 			System.out.println("# Stack maintenance for a function call #");
 			out.write("#########################################\n");
 			System.out.println("#########################################");
-	
-		/*	// Allocate the frame necessary for the calling function
-			out.write("addi $sp, $sp, -104\t# Allocates a new frame for the caller\n");
-			System.out.println("addi $sp, $sp, -104\t# Allocates a new frame for the caller");
-		*/				
+		
 			// Step 1 of the Stack Discipline - Save all pertinent registers needed by the calling function
 			for(int i = 0, j = 8; i < 8; i++, j = j+4){
 				out.write("sw $t" + i + ", " + j + "($sp)\n");
@@ -1270,6 +1422,9 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 		
 		// Trigger to capture the arguments needed for the procedure.
 		function = true;
+		
+		// Clear the argument registers
+		freeAllArg();
 		
 	}expression_list ')' 
 	{
@@ -1305,7 +1460,7 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 				out.write("lw $t" + i + ", " + j + "($sp)\n");
 				System.out.println("lw $t" + i + ", " + j + "($sp)");
 			}
-			
+
 			// Gather a register number for the return variable to go in.
 			regNumber = getReg();
 			
@@ -1316,12 +1471,14 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
 		$$.register = regNumber;
 	}
 	|	var { $$.register = $1.register; }
 	|	GETINT '(' ')'
 	{
 		
+		// Gather the input from the user
 		try {
 			
 			out.write("li $v0, 4\n");
@@ -1337,9 +1494,9 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 			out.write("syscall\n");
 			System.out.println("syscall");
 			
-			// Moves the input to the first free register.  I do not see a need for using labels here - it
-			//	seems better to place this in a register instead of saving in memory.
+			// Grab a free register to the move the input to
 			regNumber = getReg();
+			
 			out.write("move $t" + regNumber + ", $v0\t\t# Gathers input from user\n");	
 			System.out.println("move $t" + regNumber + ", $v0\t\t# Gathers input from user");
 			
@@ -1351,51 +1508,58 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	}
 	|	NUM 
 	{
+		// Grab a register
 		regNumber = getReg();
+		
 		try {
-
 			out.write("li $t" + regNumber +", " + $1.name + "\n");	
 			System.out.println("li $t" + regNumber +", " + $1.name);
-			$$.register = regNumber;
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
+		$$.register = regNumber;
 	}
 	|	TRUE
 	{
+		// Grab a free register
 		regNumber = getReg();
+		
 		try {
-
 			out.write("li $t" + regNumber +", 1\t\t# 1 = true\n");	
 			System.out.println("li $t" + regNumber +", 1\t\t# 1 = true");
-			$$.register = regNumber;
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
+		$$.register = regNumber;
 	}
 	|	FALSE	
 	{
+		// Grab a free register
 		regNumber = getReg();
+		
 		try {
-
 			out.write("li $t" + regNumber +", 0\t\t# 0 = false\n");	
 			System.out.println("li $t" + regNumber +", 0\t\t# 0 = false");
-			$$.register = regNumber;
 		} catch ( IOException e) { 
 			e.printStackTrace();
 		}
+		
+		$$.register = regNumber;
 	}
 	;
 	
 	
 %%
-	// LinkedList symbolTable - used to provide all the operations of a stack
+	// symbolTable - used to provide all the operations of a stack
 	// 		with the added benefit of an easy search mechanism.  This holds 
 	//		the current state of the Symbol Table tree.
 	private LinkedList<LinkedList> symbolTable = new LinkedList<LinkedList>();
 	
-	// LinkedList scope - a LinkedList structure is used to hold the state of
+	// scope - a LinkedList structure is used to hold the state of
 	// 		the local(current) scope
+	// global - holdes the state of the global scope
 	private LinkedList<Semantic> scope, global;
 	
 	// lexer - an instance of the lexical scanner
@@ -1407,7 +1571,12 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	private int[] argRegisters = new int[4];
 	
 	// regNumber - number received from getReg()
-	private int regNumber, typeRegNumber;
+	// typeRegNumber - used to hold the register number of the type index
+	// numOfRecordTypes - Holds the number of declarations inside a record
+	// i - a simple iterator;
+	private int regNumber, typeRegNumber, numOfRecordTypes, i;
+	
+	// stackVars - the starting position of variable saving on the stack
 	private int stackVars = 56;
 		
 	// local - a boolean denoting if we are in local or global scope.
@@ -1416,19 +1585,24 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	// type - are we dealing with a type (array or record)?
 	private boolean local, function, main, type= false;
 	
-	BufferedWriter out;
+	// out - writer which allows us to write to a file.
+	private BufferedWriter out;
 	
 	// currentFunct - Holds the current function.  This is used for returns
 	// functionCalled - Holds the function that was just looked up
-	// structCalled - holds the struct that was looked up
+	// recordCalled - holds the struct that was looked up
 	// arrayCalled - holds the array that was just looked up
 	// varCalled - holds the variable that was just looked up
 	// typeCalled - holds the type (array or struct) that was looked up
-	private Semantic currentFunct, functionCalled, structCalled, arrayCalled, varCalled, typeCalled;
+	private Semantic currentFunct, functionCalled, recordCalled, arrayCalled, varCalled, typeCalled;
 
 	// randomID - a random identifier used for labeling in expressions.
 	// randomConditionalID - a random identifier used for labeling in conditionals
-	String randomID, randomConditionalID;
+	private String randomID, randomConditionalID;
+	
+	// recordDeclarations - a linkedlist holding the declarations inside a record
+	private LinkedList<Semantic> recordDeclarations = new LinkedList<Semantic>();
+	private LinkedList<String> conditionalLabels = new LinkedList<String>();
 	
 	/**
 	 * Main method in order to call the parser
@@ -1576,6 +1750,7 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 
 	/**
 	 * getReg - returns a free register from $t0-$t7
+	 * @return int - integer of a free register that can be used
 	 */
 	public int getReg() {
 		for(int i = 0; i < registers.length; i++){
@@ -1588,14 +1763,34 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	}
 	
 	/**
-	 * freeReg
+	 * freeReg - frees the temporary register
+	 * @param registerNumber - a simple integer of the register to be freed
 	 */
 	public void freeReg(int registerNumber) {
 		registers[registerNumber] = 0;
 	}
 	
 	/**
-	 * getArgReg
+	 * freeAll - frees all temporary registers
+	 */
+	public void freeAll() {
+		for(int i = 0; i < 8; i++){
+			freeReg(i);
+		}
+	}
+	
+	/**
+	 * freeAllArg - free all argument registers
+	 */
+	public void freeAllArg() {
+		for(int i = 0; i < 4; i++){
+			freeArgReg(i);
+		}
+	}
+	
+	/**
+	 * getArgReg - find a free argument register for use
+	 * @return int - integer of a free argument register
 	 */
 	public int getArgReg() {
 		for(int i = 0; i < argRegisters.length; i++){
@@ -1608,14 +1803,12 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 	}
 	
 	/**
-	 * freeArgReg
+	 * freeArgReg - free the desired argument register
+	 * @param registerNumber - an integer of the desired argument register to be freed
 	 */
 	public void freeArgReg(int registerNumber) {
 		argRegisters[registerNumber] = 0;
 	}
-	
-	
-	
 
 /***********************************************
  *   Semantic object - in place of ParserVal   *                                          
@@ -1627,12 +1820,15 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 		private String type;			// Type of the identifier
 		private int register;			// Register where the value is being held
 		private int typeRegister;		// Register where the index of the type is being held
-		//private int argRegister; 		// Argument register where the value is being held (on function call)
 		private int position;			// Position on the stack
-		//private boolean param = false;	// Is the identifier a parameter in some function?
 		private int typeSize;			// Size of the type being declared.
-		// parameters - List which holds the parameters of a function
+		
+		
+		// variables - List which holds the parameters of a function
 		public LinkedList<String> variables = new LinkedList<String>();
+		
+		// variablesInRecord - List which holds the variables of a record
+		public LinkedList<Semantic> variablesInRecord;
 		
 		public Semantic(){	 
 
@@ -1652,4 +1848,4 @@ factor:	'(' expression ')' {$$.register = $2.register;}
 
 		public Semantic(int ival, String sval){
 		} 	 	 
-		}
+	}

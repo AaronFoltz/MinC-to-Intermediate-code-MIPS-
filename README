@@ -1,0 +1,19 @@
+Use instructions are included in the bash script file .  You simply need to run byacc on Parser.y and jflex on Lexer.l
+
+You can then run Parser with any MinC file as its input on the command line
+
+To then run the compiled MinC code, you must use “spim -f ‘output.s’”
+
+#! /bin/bash
+clear
+echo "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
+
+/Users/aaron/Desktop/Dropbox/Development/Tools/Yacc/yacc.macosx -v -Jsemantic=Semantic Parser.y
+javac Parser.java
+
+#java -jar /Users/aaron/Desktop/Dropbox/Development/Tools/JFlex/JFlex.jar /Users/aaron/Desktop/Dropbox/CS/CS540/Program4/Lexer.l
+#javac /Users/aaron/Desktop/Dropbox/CS/CS540/Program4/Lexer.java
+
+java Parser /Users/aaron/Desktop/Dropbox/CS/CS540/Program4/Tests/sort.mc
+echo
+spim -lstack 2000000 -f "output.s"
